@@ -97,7 +97,7 @@ async function emit(){
     document.getElementById("status").innerText="Message envoyé !";
 }
 
-// ÉCOUTE FONCTIONNELLE
+// ÉCOUTE FONCTIONNELLE + TRADUCTION APRÈS FIN
 async function listen(){
     document.getElementById("status").innerText="Activation micro...";
     try{
@@ -109,10 +109,10 @@ async function listen(){
         source.connect(analyser);
         const data = new Float32Array(analyser.fftSize);
         let received="";
+        let listening=true;
         document.getElementById("status").innerText="Écoute en cours...";
         const interval = setInterval(()=>{
             analyser.getFloatTimeDomainData(data);
-            // Détection simple zero-crossing pour fréquence
             let crossings=0;
             for(let i=1;i<data.length;i++){
                 if(data[i-1]<0 && data[i]>=0) crossings++;
@@ -121,12 +121,17 @@ async function listen(){
             if(freq>300 && freq<600){ received+="0"; }
             else if(freq>800 && freq<1200){ received+="1"; }
 
-            if(received.includes(START)){
+            // START détecté
+            if(received.includes(START) && !received.includes("STARTED")){
                 received = received.split(START)[1];
+                received = "STARTED"+received; // marque qu’on a démarré
             }
+
+            // END détecté
             if(received.includes(END)){
                 let message = received.split(END)[0];
-                document.getElementById("status").innerText = "Reçu : "+binaryToText(message);
+                let text = binaryToText(message);
+                document.getElementById("status").innerText = "Reçu : "+text;
                 clearInterval(interval);
             }
         }, bitDuration);
