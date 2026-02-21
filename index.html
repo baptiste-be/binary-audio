@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Binary Audio Device</title>
+<style>
+body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    background:#f2f2f7;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+.card{
+    background:white;
+    padding:40px;
+    width:420px;
+    border-radius:28px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.12);
+}
+h1{text-align:center;font-weight:600;margin-bottom:20px;}
+input{
+    width:100%;
+    padding:14px;
+    border-radius:16px;
+    border:none;
+    background:#f2f2f7;
+    font-size:16px;
+    margin-bottom:15px;
+}
+button{
+    width:100%;
+    padding:14px;
+    border-radius:16px;
+    border:none;
+    font-size:15px;
+    margin:6px 0;
+    cursor:pointer;
+    transition:0.2s;
+}
+.emit{ background:black; color:white; }
+.listen{ background:#0071e3; color:white; }
+button:hover{ transform:scale(1.03); }
+#status{
+    margin-top:15px;
+    text-align:center;
+    font-weight:500;
+}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Binary Audio</h1>
+<input id="textInput" placeholder="Tape un mot">
+<button class="emit" onclick="emit()">Émettre</button>
+<button class="listen" onclick="listen()">Écouter</button>
+<div id="status">Prêt</div>
+</div>
+
+<script>
+const bitDuration = 250;
+const START = "11111111";
+const END   = "00000000";
+let audioCtx;
+
+// TEXT → BINARY
+function textToBinary(text){
+    return text.split('').map(c => c.charCodeAt(0).toString(2).padStart(8,'0')).join('');
+}
+// BINARY → TEXT
+function binaryToText(binary){
+    let text='';
+    for(let i=0;i<binary.length;i+=8){
+        let byte = binary.slice(i,i+8);
+        if(byte.length===8) text += String.fromCharCode(parseInt(byte,2));
+    }
+    return text;
+}
+
+// EMISSION
+async function emit(){
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const text = document.getElementById("textInput").value;
+    let binary = START + textToBinary(text) + END;
+    let now = audioCtx.currentTime;
+    for(let i=0;i<binary.length;i++){
+        const osc = audioCtx.createOscillator();
+        osc.type="sine";
+        osc.frequency.value = binary[i]==="0"?400:1000;
+        osc.connect(audioCtx.destination);
+        osc.start(now + i*(bitDuration/1000));
+        osc.stop(now + i*(bitDuration/1000) + bitDuration/1000);
+    }
+    document.getElementById("status").innerText="Message envoyé !";
+}
+
+// ÉCOUTE FONCTIONNELLE
+async function listen(){
+    document.getElementById("status").innerText="Activation micro...";
+    try{
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 4096;
+        source.connect(analyser);
+        const data = new Float32Array(analyser.fftSize);
+        let received="";
+        document.getElementById("status").innerText="Écoute en cours...";
+        const interval = setInterval(()=>{
+            analyser.getFloatTimeDomainData(data);
+            // Détection simple zero-crossing pour fréquence
+            let crossings=0;
+            for(let i=1;i<data.length;i++){
+                if(data[i-1]<0 && data[i]>=0) crossings++;
+            }
+            let freq = crossings * audioCtx.sampleRate / (2*data.length);
+            if(freq>300 && freq<600){ received+="0"; }
+            else if(freq>800 && freq<1200){ received+="1"; }
+
+            if(received.includes(START)){
+                received = received.split(START)[1];
+            }
+            if(received.includes(END)){
+                let message = received.split(END)[0];
+                document.getElementById("status").innerText = "Reçu : "+binaryToText(message);
+                clearInterval(interval);
+            }
+        }, bitDuration);
+    }catch(e){
+        document.getElementById("status").innerText="Erreur micro : "+e.message;
+    }
+}
+</script>
+</body>
+</html>
