@@ -3,74 +3,83 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Binary Audio Device</title>
+<title>Binary Audio Device Pro</title>
 <style>
 body{
     margin:0;
     font-family:-apple-system,BlinkMacSystemFont,sans-serif;
-    background:#f2f2f7;
+    background: linear-gradient(135deg,#e0e0e5,#f2f2f7);
     display:flex;
     justify-content:center;
     align-items:center;
     height:100vh;
 }
 .card{
-    background:white;
+    background:rgba(255,255,255,0.8);
+    backdrop-filter: blur(25px);
     padding:40px;
-    width:420px;
-    border-radius:28px;
-    box-shadow:0 20px 60px rgba(0,0,0,0.12);
+    width:450px;
+    border-radius:32px;
+    box-shadow:0 30px 60px rgba(0,0,0,0.15);
+    text-align:center;
+    transition:0.3s;
 }
-h1{text-align:center;font-weight:600;margin-bottom:20px;}
+h1{
+    margin-bottom:25px;
+    font-weight:700;
+    color:#111;
+}
 input{
     width:100%;
-    padding:14px;
-    border-radius:16px;
+    padding:16px;
+    border-radius:20px;
     border:none;
-    background:#f2f2f7;
+    background:#f5f5f7;
     font-size:16px;
-    margin-bottom:15px;
+    margin-bottom:20px;
+    box-shadow: inset 2px 2px 6px rgba(0,0,0,0.08);
 }
 button{
     width:100%;
-    padding:14px;
-    border-radius:16px;
+    padding:16px;
+    border-radius:20px;
     border:none;
-    font-size:15px;
-    margin:6px 0;
+    font-size:16px;
+    margin:10px 0;
     cursor:pointer;
+    font-weight:600;
     transition:0.2s;
 }
-.emit{ background:black; color:white; }
+.emit{ background:#111; color:white; }
 .listen{ background:#0071e3; color:white; }
-button:hover{ transform:scale(1.03); }
+button:hover{ transform:scale(1.04); }
 #status{
-    margin-top:15px;
-    text-align:center;
+    margin-top:20px;
     font-weight:500;
+    min-height:40px;
+    color:#222;
 }
 </style>
 </head>
 <body>
 <div class="card">
-<h1>Binary Audio</h1>
-<input id="textInput" placeholder="Tape un mot">
+<h1>Binary Audio Pro</h1>
+<input id="textInput" placeholder="Tape un mot ou une phrase">
 <button class="emit" onclick="emit()">Émettre</button>
 <button class="listen" onclick="listen()">Écouter</button>
 <div id="status">Prêt</div>
 </div>
 
 <script>
-const bitDuration = 250;
+const bitDuration = 250; // ms
 const START = "11111111";
 const END   = "00000000";
 let audioCtx;
 
-// TEXT → BINARY
+// Conversion texte ↔ binaire
 function textToBinary(text){
-    return text.split('').map(c => c.charCodeAt(0).toString(2).padStart(8,'0')).join('');
+    return text.split('').map(c=>c.charCodeAt(0).toString(2).padStart(8,'0')).join('');
 }
-// BINARY → TEXT
 function binaryToText(binary){
     let text='';
     for(let i=0;i<binary.length;i+=8){
@@ -84,6 +93,7 @@ function binaryToText(binary){
 async function emit(){
     if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const text = document.getElementById("textInput").value;
+    if(!text){ document.getElementById("status").innerText="Tape quelque chose !"; return; }
     let binary = START + textToBinary(text) + END;
     let now = audioCtx.currentTime;
     for(let i=0;i<binary.length;i++){
@@ -92,12 +102,12 @@ async function emit(){
         osc.frequency.value = binary[i]==="0"?400:1000;
         osc.connect(audioCtx.destination);
         osc.start(now + i*(bitDuration/1000));
-        osc.stop(now + i*(bitDuration/1000) + bitDuration/1000);
+        osc.stop(now + i*(bitDuration/1000)+bitDuration/1000);
     }
     document.getElementById("status").innerText="Message envoyé !";
 }
 
-// ÉCOUTE FONCTIONNELLE + TRADUCTION APRÈS FIN
+// ECOUTE avec filtrage + détection fiable
 async function listen(){
     document.getElementById("status").innerText="Activation micro...";
     try{
@@ -109,32 +119,37 @@ async function listen(){
         source.connect(analyser);
         const data = new Float32Array(analyser.fftSize);
         let received="";
-        let listening=true;
+        let started=false;
+
         document.getElementById("status").innerText="Écoute en cours...";
+
         const interval = setInterval(()=>{
             analyser.getFloatTimeDomainData(data);
+
+            // Zero-crossing simplifié pour fréquence
             let crossings=0;
             for(let i=1;i<data.length;i++){
                 if(data[i-1]<0 && data[i]>=0) crossings++;
             }
             let freq = crossings * audioCtx.sampleRate / (2*data.length);
-            if(freq>300 && freq<600){ received+="0"; }
-            else if(freq>800 && freq<1200){ received+="1"; }
 
-            // START détecté
-            if(received.includes(START) && !received.includes("STARTED")){
-                received = received.split(START)[1];
-                received = "STARTED"+received; // marque qu’on a démarré
+            if(freq>300 && freq<600) received+="0";
+            else if(freq>800 && freq<1200) received+="1";
+
+            if(!started && received.includes(START)){
+                started=true;
+                received = received.split(START)[1]; // démarre après START
             }
 
-            // END détecté
-            if(received.includes(END)){
+            if(started && received.includes(END)){
                 let message = received.split(END)[0];
                 let text = binaryToText(message);
                 document.getElementById("status").innerText = "Reçu : "+text;
                 clearInterval(interval);
             }
+
         }, bitDuration);
+
     }catch(e){
         document.getElementById("status").innerText="Erreur micro : "+e.message;
     }
